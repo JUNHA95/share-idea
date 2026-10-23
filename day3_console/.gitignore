@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.tmp
+# data/ideas.json: 합성 아이디어 3건을 확인한 뒤 의도적으로 제출합니다.

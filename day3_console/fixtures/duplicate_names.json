@@ -1,0 +1,20 @@
+[
+  {
+    "name": "문서 도우미",
+    "problem": "자료 검색 시간을 줄인다",
+    "roles": [
+      "Researcher",
+      "Writer"
+    ],
+    "difficulty": "응용"
+  },
+  {
+    "name": " 문서 도우미 ",
+    "problem": "자료 검색 시간을 줄인다",
+    "roles": [
+      "Researcher",
+      "Writer"
+    ],
+    "difficulty": "응용"
+  }
+]
