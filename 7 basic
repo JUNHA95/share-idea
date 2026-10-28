@@ -1,0 +1,83 @@
+"""실습 07~08: 06번의 설정을 그대로 읽어 개발 16건으로 학습하고 test 4건을 최종 평가합니다."""
+from pathlib import Path
+import pandas as pd
+import numpy as np
+import json
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
+HERE = Path(__file__).resolve().parent
+# 제공: 06번을 먼저 완료하세요. 이 프로그램은 CV·설정 선택을 다시 하지 않습니다.
+plan = json.loads((HERE / "selection.json").read_text(encoding="utf-8"))
+raw = pd.read_csv(HERE / "requests.csv").set_index("request_id")
+develop = raw.loc[plan["train_ids"] + plan["valid_ids"]].copy()
+test = raw.loc[plan["test_ids"]].copy()
+# 제공: 행별 공식은 새 요청에도 동일하게 적용합니다. test로 통계나 설정을 학습하지 않습니다.
+for table in (develop, test):
+    table["log_input_chars"] = np.log1p(table["input_chars"])
+model = DecisionTreeClassifier(max_depth=plan["max_depth"], random_state=plan["random_state"])
+
+##--------------------------------------------------------------------------------------
+# [모델 학습]
+model.fit(develop[plan["features"]], develop["failed"])
+# 입력: plan["features"]: ['input_chars']가 들어있다.
+# 정답: develop["failed"]
+##--------------------------------------------------------------------------------------
+
+##--------------------------------------------------------------------------------------
+# [실패 클래스 위치 확인 및 테스트 데이터 실패 예측확률 추출]
+positive_column = model.classes_.tolist().index(1)
+# predict_proba()에서 실패 및 성공확률을 반환하기 때문에, 실패 클래스(1)의 위치 파악이 필요하다.
+# 그래서 model에서 실패 클래스의 위치를 가져오는 코드이다.
+probability = model.predict_proba(test[plan["features"]])[:, positive_column]
+# predict_proba(): 테스트 데이터의 성공 및 실패확률을 예측한다.
+# [:, positive_column]: 실패 확률만 추출한다.
+##--------------------------------------------------------------------------------------
+
+
+##--------------------------------------------------------------------------------------
+# [모델 평가]
+prediction = (probability > plan["threshold"]).astype(int)
+# 여기서 prediction은 모델이 예측한 '실패 확률'이다.
+f1 = f1_score(test["failed"], prediction, zero_division=0)
+# prediction이 있는 것으로 보아, 임계값을 적용하고 f1 을 계산한다.
+auc = roc_auc_score(test["failed"], probability)
+# probability가 있는 것으로 보아, AUC는 임계값을 적용하기 전 원래 실패 확률로 계산한다.
+##--------------------------------------------------------------------------------------
+
+metrics = {"n": len(test), "Accuracy": accuracy_score(test["failed"], prediction),
+           "Precision": precision_score(test["failed"], prediction, zero_division=0),
+           "Recall": recall_score(test["failed"], prediction, zero_division=0),
+           "F1": f1, "ROC_AUC": auc, "TP": int(((test["failed"] == 1) & (prediction == 1)).sum()),
+           "actual_failed": int(test["failed"].sum()), "threshold": plan["threshold"]}
+result = pd.DataFrame({"request_id": test.index, "actual": test["failed"].to_numpy(),
+                       "probability_failed": probability, "predicted": prediction})
+result.to_csv(HERE / "test_predictions.csv", index=False, encoding="utf-8-sig")
+(HERE / "test_metrics.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+print("개발/최종평가:", len(develop), len(test))
+print(result.round(3).to_string(index=False))
+print("혼동행렬:", confusion_matrix(test["failed"], prediction, labels=[0, 1]).tolist())
+print(f"Accuracy={metrics['Accuracy']:.3f}, Precision={metrics['Precision']:.3f}, Recall={metrics['Recall']:.3f}, F1={f1:.3f}, AUC={auc:.3f}")
+print("저장: test_predictions.csv, test_metrics.json")
+print("08번은 이 설정 그대로 재실행합니다. test를 보고 06번 설정을 다시 고르지 않습니다.")
+
+##--------------------------------------------------------------------------------------
+# [결과 확인]
+# 개발/최종평가: 16 4
+# request_id  actual  probability_failed  predicted
+#       B015       0               0.429          0
+#       B010       1               0.200          0
+#       B009       0               0.200          0
+#       B005       0               1.000          1
+# 혼동행렬: [[2, 1], [1, 0]]
+# Accuracy=0.500, Precision=0.000, Recall=0.000, F1=0.000, AUC=0.167
+# 저장: test_predictions.csv, test_metrics.json
+# 08번은 이 설정 그대로 재실행합니다. test를 보고 06번 설정을 다시 고르지 않습니다.
+
+# [결과 해석]
+# 테스트 데이터가 4건이기 때문에 모델의 성능을 단정지을 수는 없지만,
+# 모델의 Accuracy는 0.5로 낮고, 나머지 Precision, Recall, F1은 0으로 나타났다.
+# 이는 모델의 실패예측 능력이 전반적으로 심각하게 부족함을 의미한다.
+# 이에 대한 해결방안으로 임계값을 낮추어서 실패탐지를 늘리는 것도 있지만,
+# AUC가 0.167로 매우 낮게 나타난 것을 보면 임계값 이전에 실패와 성공 자체를 구분하는 성능이 떨어진다.
+# 따라서 임계값을 조정하는 것으로는 해결이 어려울 것이고, 우선적으로 데이터증강, 전처리 개선, 모델 변경 등이 필요해보인다.
+##--------------------------------------------------------------------------------------
